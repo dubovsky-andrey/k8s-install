@@ -63,6 +63,17 @@
     group: "{{ kube_user }}"
     mode: '0644'
 
+- name: Check if Cilium is already installed
+  become: yes
+  become_user: "{{ kube_user }}"
+  command: cilium status  --kubeconfig "{{ kube_home }}/.kube/config"
+  environment:
+    KUBECONFIG: "{{ kube_home }}/.kube/config"
+    HOME: "{{ kube_home }}"
+  register: cilium_status
+  failed_when: false
+  changed_when: false
+
 - name: Install Cilium CNI
   become: yes
   become_user: "{{ kube_user }}"
@@ -70,6 +81,7 @@
   environment:
     KUBECONFIG: "{{ kube_home }}/.kube/config"
     HOME: "{{ kube_home }}"
+  when: cilium_status.rc != 0
 
 - name: Verify Cilium status
   become: yes
