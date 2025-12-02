@@ -1,0 +1,11 @@
+
+- name: Reboot system
+  become: yes
+  reboot:
+    msg: "Rebooting to apply swap and cgroup settings."
+    reboot_timeout: 90
+
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true

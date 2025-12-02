@@ -1,0 +1,41 @@
+# Install and configure Container Runtime
+
+- name: Install Container Runtime
+  ansible.builtin.apt:
+    pkg:
+      - containerd
+      - containernetworking-plugins
+  when: ansible_facts.os_family == "Debian"
+
+- name: Install Container Runtime (Fedora/RHEL)
+  ansible.builtin.command: dnf5 -y install containerd containernetworking-plugins
+  register: dnf5_containerd
+  changed_when: "'Nothing to do' not in (dnf5_containerd.stdout | default(''))"
+  when: ansible_facts.os_family == "RedHat"
+
+- name: Ensure /etc/containerd exists
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Configure containerd
+  ansible.builtin.copy:
+    content: |
+      version = 2
+      [plugins]
+        [plugins."io.containerd.grpc.v1.cri"]
+          [plugins."io.containerd.grpc.v1.cri".containerd]
+            [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+                runtime_type = "io.containerd.runc.v2"
+                [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+                  SystemdCgroup = true
+    dest: /etc/containerd/config.toml
+    backup: yes
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart containerd

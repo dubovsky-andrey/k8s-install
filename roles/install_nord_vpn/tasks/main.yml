@@ -1,0 +1,33 @@
+- name: Check if nordvpn CLI is installed
+  ansible.builtin.command: nordvpn --version
+  register: nordvpn_cli_check
+  changed_when: false
+  failed_when: false
+
+- name: Download NordVPN installer
+  ansible.builtin.get_url:
+    url: https://downloads.nordcdn.com/apps/linux/install.sh
+    dest: /tmp/nordvpn_install.sh
+    mode: '0755'
+  when:
+    - nordvpn_cli_check.rc != 0
+
+- name: Run NordVPN installer
+  ansible.builtin.shell: yes | bash /tmp/nordvpn_install.sh
+  args:
+    creates: /usr/bin/nordvpn
+  when:
+    - nordvpn_cli_check.rc != 0
+
+- name: Configure NordVPN
+  ansible.builtin.shell: |
+    nordvpn login --token {{ nordvpn_token }} && \
+    nordvpn set killswitch on && \
+    nordvpn set technology nordlynx && \
+    nordvpn set autoconnect on && \
+    nordvpn whitelist add subnet {{ nordvpn_subnet }} && \
+    nordvpn connect
+  args:
+    executable: /bin/bash
+  when:
+    - nordvpn_cli_check.rc != 0

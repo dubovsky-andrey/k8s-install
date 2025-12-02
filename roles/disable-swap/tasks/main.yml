@@ -1,0 +1,62 @@
+---
+- name: Check whether a package called dphys-swapfile is installed
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Turn off "dphys-swapfile"
+  ansible.builtin.command: dphys-swapfile swapoff
+  when:
+    - ansible_os_family == 'Debian'
+    - "'dphys-swapfile' in ansible_facts.packages"
+
+- name: Uninstall "dphys-swapfile"
+  ansible.builtin.command: dphys-swapfile uninstall
+  when:
+    - ansible_os_family == 'Debian'
+    - "'dphys-swapfile' in ansible_facts.packages"
+
+- name: Remove and purge "dphys-swapfile" package
+  ansible.builtin.apt:
+    pkg: dphys-swapfile
+    state: absent
+    purge: yes
+    autoclean: yes
+    autoremove: yes
+  when:
+    - ansible_os_family == 'Debian'
+    - "'dphys-swapfile' in ansible_facts.packages"
+
+# Fedora/RHEL: zram-swap
+- name: Stop and mask zram swap unit (Fedora/RHEL)
+  ansible.builtin.systemd:
+    name: dev-zram0.swap
+    state: stopped
+    enabled: false
+    masked: true
+  failed_when: false
+  when: ansible_os_family == 'RedHat'
+
+- name: Remove zram-generator defaults (Fedora/RHEL)
+  ansible.builtin.command: dnf5 -y remove zram-generator-defaults
+  register: zram_remove
+  changed_when: zram_remove.rc == 0 and ('Nothing to do.' not in (zram_remove.stdout | default('')))
+  failed_when: zram_remove.rc != 0
+  when: ansible_os_family == 'RedHat'
+
+- name: swapoff -a (runtime)
+  ansible.builtin.command: swapoff -a
+  changed_when: false
+  failed_when: false
+
+- name: Comment out swap entries in /etc/fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(\S+\s+\S+\s+swap\s+\S+.*)$'
+    replace: '# \1'
+  notify: Reload systemd daemon
+
+- name: Ensure swap.target is disabled
+  ansible.builtin.systemd:
+    name: swap.target
+    enabled: false
+  failed_when: false

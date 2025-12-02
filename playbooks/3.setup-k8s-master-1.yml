@@ -1,0 +1,10 @@
+---
+- name: Playbook to install Kubernetes master
+  hosts: setup_k8s_master_1
+  become: yes
+  gather_facts: no
+  vars_files:
+  - ../group_vars/setup-k8s-general.yml  
+  roles:
+    - role: ../roles/setup-k8s-master-1
+

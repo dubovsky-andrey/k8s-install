@@ -1,0 +1,13 @@
+ - name: restart ssh on Debian/Ubuntu
+   listen: restart ssh service
+   service:
+     name: ssh
+     state: restarted
+   when: ansible_os_family == 'Debian'
+ 
+ - name: restart sshd on RHEL/CentOS
+   listen: restart ssh service
+   service:
+     name: sshd
+     state: restarted
+   when: ansible_os_family == 'RedHat'

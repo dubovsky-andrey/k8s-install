@@ -1,0 +1,73 @@
+- name: Install common packages
+  become: yes
+  package:
+    name:
+      - bash-completion
+      - rpcbind
+      - git
+      - ca-certificates
+      - curl
+    state: present
+
+- name: Install common packages on Debian/Ubuntu
+  ansible.builtin.apt:
+    pkg:
+      - nfs-common
+      - aptitude
+      - apt-transport-https
+  when: ansible_facts.os_family == "Debian"
+
+- name: Install common packages on Fedora/RHEL (base set)
+  ansible.builtin.command: dnf5 -y install nfs-utils
+  register: dnf5_common_pkgs
+  changed_when: "'Nothing to do' not in (dnf5_common_pkgs.stdout | default(''))"
+  when: ansible_os_family == 'RedHat'
+
+- name: Create Aptitude config directory
+  ansible.builtin.file:
+    path: /root/.aptitude/
+    state: directory
+    recurse: yes
+    owner: root
+    group: root
+    mode: '0700'
+  when: ansible_facts.os_family == "Debian"
+
+- name: Hold Kubernetes packages on Fedora/RHEL
+  ansible.builtin.command: >
+    dnf5 versionlock add {{ item }}
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+  args:
+    creates: "/etc/dnf/versionlock.list"
+  when: ansible_os_family == 'RedHat'
+
+- name: Configure Aptitude
+  ansible.builtin.copy:
+    content: |
+      aptitude "";
+      aptitude::Keep-Unused-Pattern "";
+      aptitude::Delete-Unused-Pattern "";
+      aptitude::UI "";
+      aptitude::UI::Prompt-On-Exit "false";
+      aptitude::UI::Default-Grouping "task,status";
+      aptitude::AutoClean-After-Update "true";
+      aptitude::Clean-After-Install "true";
+      aptitude::Forget-New-On-Update "true";
+    dest: /root/.aptitude/config
+    backup: yes
+    owner: root
+    group: root
+    mode: '0644'
+  when: ansible_facts.os_family == "Debian"
+
+
+- name: Enable and start rpcbind
+  become: true
+  ansible.builtin.service:
+    name: rpcbind
+    enabled: true
+    state: started
+  when: ansible_facts.os_family == "Debian"

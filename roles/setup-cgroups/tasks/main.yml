@@ -1,0 +1,27 @@
+- name: Create a manual backup of /etc/default/grub
+  ansible.builtin.copy:
+    src: /etc/default/grub
+    dest: "/etc/default/grub.backup_{{ ansible_date_time.iso8601 | regex_replace(':', '-') }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0644'
+  
+# - name: Ensure cgroup options in GRUB_CMDLINE_LINUX
+#   ansible.builtin.lineinfile:
+#     path: /etc/default/grub
+#     regexp: '^GRUB_CMDLINE_LINUX="(?!.*\bcgroup_memory=1\b)(.*)"$'
+#     line: 'GRUB_CMDLINE_LINUX="\1 cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1"'
+#     backrefs: yes
+  
+# - name: Regenerate GRUB configuration
+#   ansible.builtin.command: update-grub
+#   changed_when: "'Generating grub configuration file' in result.stdout or 'Generating grub configuration file' in result.stderr"
+#   register: result
+
+
+# reboot
+
+- name: reboot
+  reboot:
+    reboot_timeout: 600

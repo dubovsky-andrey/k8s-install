@@ -1,0 +1,39 @@
+
+kube_user: habib
+kube_home: /home/habib
+file_path: "/boot/firmware/cmdline.txt"
+kubernetes_config_path: "/etc/kubernetes/admin.conf"
+kubernetes_join_path: "/home/habib/kubeadm_init_output.log"
+kubernetes_version: "v1.34"
+cilium_cli_version: "v0.18.7"
+cilium_version: "1.18.1"
+metallb_version: v0.14.8
+argocd_version: "v3.1.4"
+master_1_ip: "192.168.1.232"
+cidr_pods: "10.244.0.0/16"
+cidr_metal: "192.168.1.50-192.168.1.90"
+token: "0qncmm.a1bssl1kkffrlxq4"
+discovery_token: "e6c708e70faf30d780fe21efc1c6c82cfaa250ea2dd3e4d0af415db0fe39d6bf"
+certificate_key: "d3f3a6bdce198b424f7161fa049c96c7c222acdf85be68e58053ff46024d1b63"
+namespace_name_1: prod
+namespace_name_2: stage
+namespace_name_3: test
+
+# ARGOCD
+argocd_server: "192.168.1.232:8080"
+argocd_repo_url: "git@github.com:dubovsky-andrey/k8s-cluster-private.git"
+argocd_repo_name: "k8s-cluster-private"
+argocd_ssh_key_path: "/home/habib/.ssh/id_ed25519"
+argocd_root_name: "argocd-root-service3"
+argocd_namespace: "argocd"
+argocd_repo_path: "argocd/apps"
+argocd_target_revision: "main"
+
+kubeconfig_path: "/home/habib/.kube/config"
+
+#NordVPN
+repo_secret_name: repo-k8s-cluster-private
+nordvpn_token: "e9f2ab7019653745c40c667a8e21913eeb317cadcb93d4885f54b7d478536202"
+nordvpn_subnet: "192.168.1.0/24"
+ansible_python_interpreter: /usr/bin/python3
+

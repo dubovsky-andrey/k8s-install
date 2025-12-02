@@ -1,0 +1,97 @@
+# Install kubeadm kubelet kubectl
+
+- name: Ensure /etc/apt/keyrings exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: ansible_os_family == 'Debian'
+
+- name: Use the k8s apt key
+  get_url:
+    url: https://pkgs.k8s.io/core:/stable:/{{ kubernetes_version }}/deb/Release.key
+    dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    mode: "0644"
+  when: ansible_os_family == 'Debian'
+
+- name: Display the result of adding the Kubernetes GPG key
+  ansible.builtin.debug:
+    var: add_k8s_gpg_key_result
+
+- name: Install k8s apt sources
+  apt_repository:
+    repo: deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/{{ kubernetes_version }}/deb/ /
+    state: present
+  when: ansible_os_family == 'Debian'
+
+- name: Install kubelet kubeadm kubectl
+  ansible.builtin.apt:
+    pkg:
+      - kubelet
+      - kubeadm
+      - kubectl
+  when: ansible_os_family == 'Debian'
+
+- name: Hold Kubernetes packages on Debian/Ubuntu
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+  when: ansible_os_family == 'Debian'
+
+- name: Configure Kubernetes yum repo (Fedora/RHEL)
+  ansible.builtin.yum_repository:
+    name: kubernetes
+    description: Kubernetes
+    baseurl: https://pkgs.k8s.io/core:/stable:/{{ kubernetes_version }}/rpm/
+    gpgcheck: yes
+    gpgkey: https://pkgs.k8s.io/core:/stable:/{{ kubernetes_version }}/rpm/repodata/repomd.xml.key
+    enabled: yes
+  when: ansible_os_family == 'RedHat'
+
+- name: Install kubelet kubeadm kubectl (Fedora/RHEL)
+  ansible.builtin.dnf:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+    state: present
+    update_cache: yes
+  when: ansible_os_family == 'RedHat'
+
+- name: Enable kubelet service (Fedora/RHEL)
+  ansible.builtin.service:
+    name: kubelet
+    enabled: yes
+  when: ansible_os_family == 'RedHat'
+
+
+
+
+- name: Enable kubectl auto-completion for the current user
+  become: yes
+  become_user: "{{ kube_user }}"
+  shell: |
+    echo "source <(kubectl completion bash)" >> ~/.bashrc
+    source ~/.bashrc
+  args:
+    executable: /bin/bash
+
+- name: Ensure kubectl auto-completion is enabled system-wide
+  become: yes
+  lineinfile:
+    path: /etc/bash_completion.d/kubectl
+    create: yes
+    line: "source <(kubectl completion bash)"
+
+- name: Reload shell configuration for the current session
+  become: yes
+  shell: |
+    source ~/.bashrc
+  args:
+    executable: /bin/bash

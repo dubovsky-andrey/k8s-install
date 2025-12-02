@@ -1,0 +1,216 @@
+- name: Download cilium-cli (amd64)
+  ansible.builtin.get_url:
+    url: https://github.com/cilium/cilium-cli/releases/download/{{ cilium_cli_version }}/cilium-linux-amd64.tar.gz
+    dest: /tmp/cilium-linux-amd64.tar.gz
+    mode: '0644'
+  
+- name: Unpack cilium-cli
+  ansible.builtin.unarchive:
+    src: /tmp/cilium-linux-amd64.tar.gz
+    dest: /usr/local/bin
+    remote_src: true
+  
+- name: Ensure cilium-cli permissions
+  ansible.builtin.file:
+    path: /usr/local/bin/cilium
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Initialize Kubernetes cluster with kubeadm
+  command: kubeadm init --pod-network-cidr="{{ cidr_pods }}" --control-plane-endpoint="{{ master_1_ip }}" --apiserver-cert-extra-sans="{{ master_1_ip }}" --upload-certs
+  args:
+    creates: "{{ kubernetes_config_path }}"
+  become: yes
+  register: kubeadm_init
+  retries: 70
+  delay: 10
+  until: kubeadm_init.rc == 0
+
+- name: Display full kubeadm init output for debugging
+  debug:
+    var: kubeadm_init.stdout
+
+- name: Save full kubeadm init output to a file
+  copy:
+    content: "{{ kubeadm_init.stdout }}"
+    dest: "{{ kubernetes_join_path }}"
+    owner: "{{ kube_user }}"
+    group: "{{ kube_user }}"
+    mode: '0644'
+
+- name: Create directory .kube in home directory user
+  file:
+    path: "{{ kube_home }}/.kube"
+    state: directory
+    mode: '0755'
+    owner: "{{ kube_user }}"
+    group: "{{ kube_user }}"
+
+- name: Copy admin.conf to kubeconfig path
+  copy:
+    src: "{{ kubernetes_config_path }}"
+    dest: "{{ kube_home }}/.kube/config"
+    owner: "{{ kube_user }}"
+    group: "{{ kube_user }}"
+    mode: '0644'
+    remote_src: yes
+
+- name: Setup permissions owner and group for kubeconfig
+  file:
+    path: "{{ kube_home }}/.kube/config"
+    owner: "{{ kube_user }}"
+    group: "{{ kube_user }}"
+    mode: '0644'
+
+- name: Install Cilium CNI
+  become: yes
+  become_user: "{{ kube_user }}"
+  command: cilium install --version {{ cilium_version }} --wait --kubeconfig "{{ kube_home }}/.kube/config"
+  environment:
+    KUBECONFIG: "{{ kube_home }}/.kube/config"
+    HOME: "{{ kube_home }}"
+
+- name: Verify Cilium status
+  become: yes
+  become_user: "{{ kube_user }}"
+  command: cilium status --wait --kubeconfig "{{ kube_home }}/.kube/config"
+  environment:
+    KUBECONFIG: "{{ kube_home }}/.kube/config"
+    HOME: "{{ kube_home }}"
+
+# - name: Ensure .ssh dir exists
+#   ansible.builtin.file:
+#     path: "/home/habib/.ssh"
+#     state: directory
+#     owner: "habib"
+#     group: "habib"
+#     mode: "0700"
+
+# - name: Generate ed25519 keypair (idempotent)
+#   community.crypto.openssh_keypair:
+#     path: "/home/habib/.ssh/id_ed25519"
+#     type: ed25519
+#     owner: "habib"
+#     group: "habib"
+#     mode: "0600"
+#     comment: "habib@{{ inventory_hostname }}"
+#     regenerate: never
+
+- name: Untaint all nodes (single-node cluster use-case)
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  shell: |
+    set -e
+    kubectl taint nodes --all node-role.kubernetes.io/control-plane- || true
+  changed_when: false
+  failed_when: false
+
+- name: Ensure namespace argocd exists
+  become: yes
+  become_user: "{{ kube_user }}"
+  shell: kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: "{{ kube_home }}/.kube/config"
+    HOME: "{{ kube_home }}"
+
+- name: Install Argo CD
+  become: yes
+  become_user: "{{ kube_user }}"
+  command: kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/{{ argocd_version }}/manifests/install.yaml
+  environment:
+    KUBECONFIG: "{{ kube_home }}/.kube/config"
+    HOME: "{{ kube_home }}"
+
+- name: Wait for argocd-server rollout
+  become: yes
+  become_user: "{{ kube_user }}"
+  command: kubectl -n argocd rollout status deploy/argocd-server --timeout=600s
+  environment:
+    KUBECONFIG: "{{ kube_home }}/.kube/config"
+    HOME: "{{ kube_home }}"
+
+- name: Install argocd CLI
+  get_url:
+    url: "https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64"
+    dest: /usr/local/bin/argocd
+    mode: "0755"
+    force: yes
+  become: yes
+
+# - name: Read SSH private key
+#   slurp:
+#     src: "{{ argocd_ssh_key_path }}"
+#   register: privkey
+
+# - name: Render Argo CD repo Secret manifest
+#   template:
+#     src: argocd-repo-secret.yaml.j2
+#     dest: /tmp/argocd-repo-secret.yaml
+#     owner: "{{ kube_user }}"
+#     group: "{{ kube_user }}"
+#     mode: '0600'
+#   vars:
+#     ssh_private_key: "{{ privkey.content | b64decode }}"
+
+# - name: Apply Argo CD repo Secret
+#   become: yes
+#   become_user: "{{ kube_user }}"
+#   shell: kubectl apply -f /tmp/argocd-repo-secret.yaml
+#   environment:
+#     KUBECONFIG: "{{ kubeconfig_path }}"
+
+- name: Render Argo CD root Application manifest
+  template:
+    src: argocd-root-app.yaml.j2
+    dest: /tmp/argocd-root-app.yaml
+    owner: "{{ kube_user }}"
+    group: "{{ kube_user }}"
+    mode: '0644'
+
+- name: Apply Argo CD root Application
+  become: yes
+  become_user: "{{ kube_user }}"
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  command: kubectl apply -f /tmp/argocd-root-app.yaml
+
+
+- name: Get kubectl bash completion text
+  become: yes
+  command: kubectl completion bash
+  register: kubectl_completion
+  changed_when: false
+
+- name: Install kubectl completion system-wide
+  become: yes
+  copy:
+    dest: /etc/bash_completion.d/kubectl
+    content: "{{ kubectl_completion.stdout }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install alias and completion binding system-wide
+  become: yes
+  copy:
+    dest: /etc/profile.d/kubectl-alias.sh
+    content: |
+      alias k=kubectl
+      complete -o default -F __start_kubectl k
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure user bashrc has kubectl completion and alias
+  become: yes
+  become_user: "{{ kube_user | default(ansible_user_id) }}"
+  lineinfile:
+    path: "~{{ kube_user | default(ansible_user_id) }}/.bashrc"
+    line: "{{ item }}"
+    create: yes
+    insertafter: EOF
+  loop:
+    - 'source <(kubectl completion bash)'
+    - 'alias k=kubectl'
+    - 'complete -o default -F __start_kubectl k'
