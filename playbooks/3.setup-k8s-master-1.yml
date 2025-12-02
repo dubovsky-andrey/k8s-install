@@ -6,5 +6,5 @@
   vars_files:
   - ../group_vars/setup-k8s-general.yml  
   roles:
-    - role: ../roles/setup-k8s-master-1
+#    - role: ../roles/setup-k8s-master-1
 
