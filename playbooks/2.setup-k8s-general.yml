@@ -12,3 +12,4 @@
     - role: ../roles/setup-container-runtime
     - role: ../roles/setup-iptable-k8s
     - role: ../roles/install-kubernetes
+    - role: ../roles/setup-k8s-master-1
