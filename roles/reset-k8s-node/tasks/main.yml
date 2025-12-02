@@ -1,0 +1,207 @@
+- name: Set kubeconfig_path if not defined
+  ansible.builtin.set_fact:
+    kubeconfig_path: "{{ kube_home }}/.kube/config"
+  when: kubeconfig_path is not defined
+
+- name: Check if kubeconfig exists
+  ansible.builtin.stat:
+    path: "{{ kubeconfig_path }}"
+  register: kubeconfig_stat
+
+- name: Try Cilium status
+  ansible.builtin.command: cilium status --wait --kubeconfig "{{ kubeconfig_path }}"
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: cilium_status
+  failed_when: false
+  changed_when: false
+  when: kubeconfig_stat.stat.exists
+
+- name: Uninstall Cilium if present
+  ansible.builtin.command: cilium uninstall --wait --kubeconfig "{{ kubeconfig_path }}"
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: cilium_uninstall
+  failed_when: false
+  when:
+    - kubeconfig_stat.stat.exists
+    - cilium_status.rc == 0
+
+- name: Ensure no Cilium pods remain
+  ansible.builtin.shell: |
+    kubectl -n kube-system get pods | grep -i cilium || echo "no cilium pods"
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: cilium_pods_check
+  failed_when: false
+  changed_when: false
+  when: kubeconfig_stat.stat.exists
+
+- name: Delete Argo CD namespace
+  ansible.builtin.command: kubectl delete ns argocd --ignore-not-found
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: delete_argocd_ns
+  failed_when: false
+  when: kubeconfig_stat.stat.exists
+
+- name: Delete Argo CD CRDs
+  ansible.builtin.shell: |
+    set -e
+    CRDS=$(kubectl get crd | awk '/argoproj.io/ {print $1}')
+    if [ -n "$CRDS" ]; then
+      kubectl delete crd $CRDS
+    fi
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: delete_argocd_crds
+  failed_when: false
+  changed_when: delete_argocd_crds.stdout != ""
+  when: kubeconfig_stat.stat.exists
+
+- name: Check if kubeadm binary exists
+  ansible.builtin.stat:
+    path: /usr/bin/kubeadm
+  register: kubeadm_stat
+
+- name: kubeadm reset
+  ansible.builtin.command: kubeadm reset -f
+  register: kubeadm_reset
+  failed_when: false
+  when: kubeadm_stat.stat.exists
+
+- name: Stop kubelet service if present
+  ansible.builtin.service:
+    name: kubelet
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Stop containerd service if present
+  ansible.builtin.service:
+    name: containerd
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Remove CNI configuration directory
+  ansible.builtin.file:
+    path: /etc/cni/net.d
+    state: absent
+
+- name: Remove CNI binaries directory
+  ansible.builtin.file:
+    path: /opt/cni/bin
+    state: absent
+
+- name: Remove CNI state directory
+  ansible.builtin.file:
+    path: /var/lib/cni
+    state: absent
+
+- name: Remove Kubernetes etc directory
+  ansible.builtin.file:
+    path: /etc/kubernetes
+    state: absent
+
+- name: Remove Kubernetes kubelet directory
+  ansible.builtin.file:
+    path: /var/lib/kubelet
+    state: absent
+
+- name: Remove etcd data directory
+  ansible.builtin.file:
+    path: /var/lib/etcd
+    state: absent
+
+- name: Remove Kubernetes run directory
+  ansible.builtin.file:
+    path: /var/run/kubernetes
+    state: absent
+
+- name: Remove Cilium data directory
+  ansible.builtin.file:
+    path: /var/lib/cilium
+    state: absent
+
+- name: Remove user kube directory
+  ansible.builtin.file:
+    path: "{{ kube_home }}/.kube"
+    state: absent
+
+- name: Remove root kube directory
+  ansible.builtin.file:
+    path: /root/.kube
+    state: absent
+
+- name: Remove Cilium CLI binary
+  ansible.builtin.file:
+    path: /usr/local/bin/cilium
+    state: absent
+
+- name: Remove Argo CD CLI binary
+  ansible.builtin.file:
+    path: /usr/local/bin/argocd
+    state: absent
+
+- name: Remove kubectl bash completion
+  ansible.builtin.file:
+    path: /etc/bash_completion.d/kubectl
+    state: absent
+
+- name: Remove kubectl alias profile script
+  ansible.builtin.file:
+    path: /etc/profile.d/kubectl-alias.sh
+    state: absent
+
+- name: Remove Kubernetes apt keyring on Debian
+  ansible.builtin.file:
+    path: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    state: absent
+  when: ansible_os_family == "Debian"
+
+- name: Remove Kubernetes apt sources on Debian
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  with_fileglob:
+    - /etc/apt/sources.list.d/*kubernetes*
+  when: ansible_os_family == "Debian"
+
+- name: Unhold Kubernetes packages on Debian
+  ansible.builtin.shell: |
+    set -e
+    apt-mark unhold kubelet kubeadm kubectl || true
+  args:
+    executable: /bin/bash
+  register: unhold_k8s
+  failed_when: false
+  when: ansible_os_family == "Debian"
+
+- name: Purge Kubernetes packages on Debian
+  ansible.builtin.apt:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+      - kubernetes-cni
+    state: absent
+    purge: yes
+  when: ansible_os_family == "Debian"
+
+- name: Autoremove unused packages on Debian
+  ansible.builtin.apt:
+    autoremove: yes
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Remove containerd data directory
+  ansible.builtin.file:
+    path: /var/lib/containerd
+    state: absent
+
+- name: Debug reset summary
+  ansible.builtin.debug:
+    msg:
+      - "Kubernetes reset completed on this node"
+      - "All main Kubernetes, Cilium, Argo CD artifacts were removed"
